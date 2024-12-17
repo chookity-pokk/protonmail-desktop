@@ -1,0 +1,83 @@
+name: Sync Upstream
+on: 
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+  
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with: 
+          submodules: recursive
+
+      - name: Setup git bot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Check for Upstream Changes
+        id: submodule_update
+        run: |
+          # get latest commit hash from upstream
+          COMMIT=$(curl -s https://api.github.com/repos/ProtonMail/WebClients/commits/main | jq -r '.sha')
+          # get commit hash from submodule
+          cd WebClients
+          SUBMODULE_COMMIT=$(git rev-parse HEAD)
+          cd ..
+
+          HAS_CHANGED=false
+          if [ "$COMMIT" != "$SUBMODULE_COMMIT" ]; then
+            echo "Upstream Submodule has changed to $COMMIT"
+            HAS_CHANGED=true
+          fi
+          echo "submodule_changed=${HAS_CHANGED}" >> $GITHUB_OUTPUT
+          echo "new_commit=${COMMIT}" >> $GITHUB_ENV
+
+      - name: Update Submodule
+        if: steps.submodule_update.outputs.submodule_changed == 'true'
+        run: |
+          echo "Update Submodule to latest commit ${new_commit}"
+          git submodule update --remote
+          cd WebClients
+          git checkout ${new_commit}
+
+      - name: Check Proton Inbox Desktop Version
+        id: inbox_desktop_version
+        run: |
+          INBOX_DESKTOP_VERSION=$(cat WebClients/applications/inbox-desktop/package.json | jq -r '.version')
+          SPEC_VERSION=$(grep -oP '(?<=_version ).*' protonmail-desktop.spec)
+
+          HAS_CHANGED=false
+          if [ "$INBOX_DESKTOP_VERSION" != "$SPEC_VERSION" ]; then
+            echo "Proton Mail Inbox Desktop version has changed to $INBOX_DESKTOP_VERSION"
+            HAS_CHANGED=true
+          fi
+
+          echo "inbox_desktop_version=${INBOX_DESKTOP_VERSION}" >> $GITHUB_ENV
+          echo "inbox_desktop_changed=${HAS_CHANGED}" >> $GITHUB_OUTPUT
+
+      - name: Update Spec File
+        if: steps.inbox_desktop_version.outputs.inbox_desktop_changed == 'true'
+        run: |
+          echo "Updating protonmail-desktop.spec"
+          sed -i "s/_version .*/_version ${inbox_desktop_version}/" protonmail-desktop.spec
+
+          COMMIT_MSG="Update to upstream release $inbox_desktop_version"
+          CHANGELOG="$(sed -n '/%changelog/,$p' protonmail-desktop.spec | sed '1d')"
+          NEW_CHANGELOG=$(echo -e "* $(date +'%a %b %d %Y') ArchitektApx <architektapx@gehinors.ch> - $inbox_desktop_version\n- $COMMIT_MSG\n\n$CHANGELOG")
+
+          # replace old changelog with new one
+          sed -i '/%changelog/,$d' protonmail-desktop.spec
+          echo -e "%changelog\n$NEW_CHANGELOG" >> protonmail-desktop.spec
+
+      - name: Commit Changes
+        if: steps.inbox_desktop_version.outputs.inbox_desktop_changed == 'true'
+        run: |
+          git add WebClients
+          git add protonmail-desktop.spec
+          git commit -m "chore(WebClients): sync upstream for Inbox Desktop version ${inbox_desktop_version}"
+          git push
