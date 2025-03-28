@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 %global _app_name proton-mail
 %global _desktop_name Proton Mail
-%global _version 1.6.0
+%global _version 1.8.0
 
 Name          : protonmail-desktop
 Version       : %{_version}
@@ -64,5 +64,8 @@ mv usr/share/pixmaps/%{_app_name}.png %{buildroot}%{_datadir}/pixmaps
 /opt/%{_app_name}
 
 %changelog
+* Fri Mar 28 2025 ArchitektApx <architektapx@gehinors.ch> - 1.8.0
+- Update to upstream release 1.8.0
+
 * Tue Dec 17 2024 ArchitektApx <architektapx@gehinors.ch> - 1.6.0
 - Initial Release
