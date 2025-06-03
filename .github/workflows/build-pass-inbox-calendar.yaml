@@ -1,0 +1,128 @@
+name: Build Proton Desktop Apps
+on:
+  schedule:
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Check Desktop Versions
+        id: version_check
+        run: |
+          fetch_version() {
+            grep -oP "(?<=_version ).*" protonmail-desktop.spec
+          }
+
+          git fetch --tags
+
+          check_update_needed() {
+            local name=$1
+            local ver=$(fetch_version $name)
+            local latest_tag=$(git tag --list "$name-*" | sort -V | tail -n1 | cut -d'-' -f2)
+            [ "$ver" != "$latest_tag" ] && echo true || echo false
+          }
+
+          INBOX_VER=$(fetch_version inbox)
+          PASS_VER=$(fetch_version pass)
+          CAL_VER=$(fetch_version calendar)
+
+          NEEDS_INBOX=$(check_update_needed inbox)
+          NEEDS_PASS=$(check_update_needed pass)
+          NEEDS_CAL=$(check_update_needed calendar)
+
+          echo "INBOX_VERSION=$INBOX_VER" >> $GITHUB_OUTPUT
+          echo "PASS_VERSION=$PASS_VER" >> $GITHUB_OUTPUT
+          echo "CAL_VERSION=$CAL_VER" >> $GITHUB_OUTPUT
+          echo "NEEDS_INBOX=$NEEDS_INBOX" >> $GITHUB_OUTPUT
+          echo "NEEDS_PASS=$NEEDS_PASS" >> $GITHUB_OUTPUT
+          echo "NEEDS_CAL=$NEEDS_CAL" >> $GITHUB_OUTPUT
+
+      - name: Setup Git Bot
+        if: |
+          steps.version_check.outputs.NEEDS_INBOX == 'true' || 
+          steps.version_check.outputs.NEEDS_PASS == 'true' || 
+          steps.version_check.outputs.NEEDS_CAL == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Install Dependencies
+        if: always()
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm dpkg-dev \
+            debhelper fakeroot libc6-dev-arm64-cross \
+            linux-libc-dev-arm64-cross g++-aarch64-linux-gnu
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: latest
+          cache: 'yarn'
+          cache-dependency-path: WebClients/yarn.lock
+
+      - name: Apply Patches
+        run: |
+          for patch in $(ls patches/*.patch 2>/dev/null); do
+            patch -p1 < "$patch"
+          done
+
+      - name: Install Yarn
+        run: |
+          cd WebClients
+          npm install -g yarn
+          yarn install --no-immutable
+
+      - name: Build Desktop Apps
+        run: |
+          cd WebClients
+          [ "${{ steps.version_check.outputs.NEEDS_INBOX }}" = "true" ] && yarn workspace inbox-desktop make --arch=arm64
+          [ "${{ steps.version_check.outputs.NEEDS_PASS }}" = "true" ] && yarn workspace pass-desktop make --arch=arm64
+          [ "${{ steps.version_check.outputs.NEEDS_CAL }}" = "true" ] && yarn workspace calendar make --arch=arm64
+
+      - name: Collect Outputs
+        id: bundle
+        run: |
+          mkdir -p dist
+          for app in inbox pass calendar; do
+            OUTDIR=WebClients/applications/proton-$app-desktop/out/make
+            for fmt in deb rpm zip; do
+              find "$OUTDIR/$fmt" -type f -name "*.$fmt" -exec cp {} dist/ \; 2>/dev/null || true
+            done
+          done
+
+      - name: Create Release Markdown
+        id: release
+        run: |
+          touch release.md
+          echo "# Proton Desktop Releases" >> release.md
+
+          for app in inbox pass calendar; do
+            ver=$(eval echo \$${app^^}_VERSION)
+            needs=$(eval echo \$NEEDS_${app^^})
+            [ "$needs" = "true" ] && echo "## Proton ${app^} Desktop $ver" >> release.md
+          done
+
+          echo "## Checksums" >> release.md
+          echo "| File | SHA256 |" >> release.md
+          echo "| --- | --- |" >> release.md
+          cd dist
+          sha256sum * | sed -E 's/(.*)  (.*)/| \2 | \1 |/' >> ../release.md
+
+      - name: Publish Releases
+        uses: ncipollo/release-action@v1.14.0
+        with:
+          artifacts: dist/*
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: combined-${{ github.run_id }}
+          bodyFile: ${{ github.workspace }}/release.md
+          makeLatest: true
+          skipIfReleaseExists: true
