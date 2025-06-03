@@ -82,7 +82,6 @@ jobs:
           yarn install --no-immutable
 
       - name: Debug file tree
-        if: steps.inbox_desktop_version.outputs.INBOX_NEEDS_UPDATE == 'true'
         run: |
           echo "Listing contents of src/utils:"
           ls -l WebClients/applications/inbox-desktop/src/utils
