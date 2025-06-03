@@ -81,6 +81,15 @@ jobs:
           npm install -g yarn
           yarn install --no-immutable
 
+      - name: Debug file tree
+        if: steps.inbox_desktop_version.outputs.INBOX_NEEDS_UPDATE == 'true'
+        run: |
+          echo "Listing contents of src/utils:"
+          ls -l WebClients/applications/inbox-desktop/src/utils
+
+          echo "Full path check:"
+          find WebClients/applications/inbox-desktop -name 'config.ts'
+
       - name: Build Desktop Apps
         run: |
           cd WebClients
