@@ -84,9 +84,9 @@ jobs:
       - name: Build Desktop Apps
         run: |
           cd WebClients
-          [ "${{ steps.version_check.outputs.NEEDS_INBOX }}" = "true" ] && yarn workspace inbox-desktop make --arch=arm64
-          [ "${{ steps.version_check.outputs.NEEDS_PASS }}" = "true" ] && yarn workspace pass-desktop make --arch=arm64
-          [ "${{ steps.version_check.outputs.NEEDS_CAL }}" = "true" ] && yarn workspace calendar make --arch=arm64
+          [ "${{ steps.version_check.outputs.NEEDS_INBOX }}" = "true" ] && yarn workspace proton-inbox-desktop make --arch=arm64
+          [ "${{ steps.version_check.outputs.NEEDS_PASS }}" = "true" ] && yarn workspace proton-pass-desktop make --arch=arm64
+          [ "${{ steps.version_check.outputs.NEEDS_CAL }}" = "true" ] && yarn workspace proton-calendar make --arch=arm64
 
       - name: Collect Outputs
         id: bundle
